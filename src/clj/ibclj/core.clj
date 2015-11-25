@@ -75,24 +75,36 @@
 (defn unsubscribe! [api ctx]
   (.cancelTopMktData api (:row ctx)))
 
+(defn- moving-average [data]
+  (when (not-empty data)
+    (/ (reduce + data)
+       (count data))))
+
+(defn- moving-average-frame [limit data new-datum]
+  (vec (take limit (conj data new-datum))))
+
 (defn start []
   (let [api (api-ctrl)
         c (chan)
-        vxx-ctx (contract-ctx c "VXX" com.ib.controller.Types$SecType/STK)
-        spy-ctx (contract-ctx c "SPY" com.ib.controller.Types$SecType/STK)
+        chan-vxx (chan)
+        chan-spy (chan)
+        vxx-ctx (contract-ctx chan-vxx "VXX" com.ib.controller.Types$SecType/STK)
+        spy-ctx (contract-ctx chan-spy "SPY" com.ib.controller.Types$SecType/STK)
 ]
     (.connect api "localhost" 7497 5)
 
-    (subscribe! api vxx-ctx c)
-    (subscribe! api spy-ctx c)
+    (subscribe! api vxx-ctx chan-vxx)
+    (subscribe! api spy-ctx chan-spy)
 
-    (go-loop []
-      (let [{:keys [sym] :as msg} (<! c)]
+    (go-loop [data []]
+      (let [{:keys [sym price type] :as msg} (<! chan-spy)]
         (println msg)
-        (if (= sym "VXX")
-          (println "********VXX")
-          (println "********SPY"))
-        (recur)))
+
+        (if price
+          (let [data (moving-average-frame 3 data price)]
+            (println "moving average of" data (moving-average data))
+            (recur data))
+          (recur data))))
 
     (Thread/sleep 100000)
 
@@ -108,4 +120,4 @@
   (start))
 
 
-(start)
+;;(start)
